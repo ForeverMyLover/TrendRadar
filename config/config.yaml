@@ -5,15 +5,39 @@ report:
   max_news_per_keyword: 0  # 0表示不限制每个关键词下的新闻数量
   reverse_content_order: false
 
+notification:
+  push_window:
+    enabled: true
+    push_interval_hours: 12  # 半天推一次
+    time_range:
+      start: "08:00"
+      end: "22:00"
+  webhooks:
+    email_from: ""
+    email_password: ""
+    email_to: ""
+
 push:
   channels:
-    - wechat  # 开启企业微信推送
-  wechat:
-    webhook: {{ env.WECHAT_WEBHOOK_URL }}  # 自动读取你设置的 GitHub Secrets
+    - email  # 邮件推送
 
 platforms:
-  enable_default: true  # 监控默认的35个平台
-  extra: []
+  - id: "toutiao"
+    name: "今日头条"
+  - id: "baidu"
+    name: "百度热搜"
+  - id: "zhihu"
+    name: "知乎"
+  - id: "weibo"
+    name: "微博"
+  - id: "bilibili-hot-search"
+    name: "B站热搜"
+  - id: "douyin"
+    name: "抖音"
+  - id: "wallstreetcn-hot"
+    name: "华尔街见闻"
+  - id: "cls-hot"
+    name: "财联社"
 
 filters:
   include_keywords: []  # 你可以填入想关注的词，如 ["AI", "股市"]

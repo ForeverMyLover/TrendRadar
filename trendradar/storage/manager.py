@@ -278,6 +278,10 @@ class StorageManager:
         """
         return self.get_backend().has_pushed_today(date)
 
+    def get_last_push_time(self):
+        """获取最近一次推送时间"""
+        return self.get_backend().get_last_push_time()
+
     def record_push(self, report_type: str, date: Optional[str] = None) -> bool:
         """
         记录推送

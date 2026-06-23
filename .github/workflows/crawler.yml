@@ -35,7 +35,8 @@ on:
     #   "15 * * * *"     → 每小时第15分钟 / minute 15 every hour
     #   "30 0-14 * * *"  → 北京时间 8:00-22:00 每小时第30分钟 / Beijing 8am-10pm
     #
-    - cron: "33 * * * *"
+    # 半天推送一次：北京时间 8:00 和 20:00 (UTC 0:00 和 12:00)
+    - cron: "33 0,12 * * *"
 
   workflow_dispatch:
 
@@ -50,7 +51,18 @@ permissions:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+
+    services:
+      rsshub:
+        image: diygod/rsshub:latest
+        ports:
+          - 1200:1200
+        options: >-
+          --health-cmd "wget -qO- http://localhost:1200 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout repository

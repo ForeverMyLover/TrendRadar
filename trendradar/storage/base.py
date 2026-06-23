@@ -340,6 +340,11 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
+    def get_last_push_time(self):
+        """获取最近一次推送时间"""
+        pass
+
+    @abstractmethod
     def record_push(self, report_type: str, date: Optional[str] = None) -> bool:
         """
         记录推送

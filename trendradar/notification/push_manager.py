@@ -53,6 +53,29 @@ class PushRecordManager:
         """
         return self.storage_backend.has_pushed_today()
 
+    def should_push(self, push_interval_hours: int = 0) -> bool:
+        """
+        检查是否应该推送（支持自定义间隔）
+
+        Args:
+            push_interval_hours: 最小推送间隔（小时），0 表示仅每天一次
+
+        Returns:
+            是否应该推送
+        """
+        if push_interval_hours <= 0:
+            return not self.has_pushed_today()
+
+        last_push = self.storage_backend.get_last_push_time()
+        if last_push is None:
+            return True
+
+        now = self.get_time()
+        if last_push.tzinfo is None:
+            last_push = last_push.replace(tzinfo=now.tzinfo)
+        elapsed = (now - last_push).total_seconds() / 3600
+        return elapsed >= push_interval_hours
+
     def record_push(self, report_type: str) -> bool:
         """
         记录推送

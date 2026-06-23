@@ -848,6 +848,22 @@ class LocalStorageBackend(StorageBackend):
             print(f"[本地存储] 检查推送记录失败: {e}")
             return False
 
+    def get_last_push_time(self) -> Optional[datetime]:
+        """获取最近一次推送时间"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT push_time FROM push_records ORDER BY push_time DESC LIMIT 1"
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return datetime.fromisoformat(row[0])
+            return None
+        except Exception as e:
+            print(f"[本地存储] 获取最后推送时间失败: {e}")
+            return None
+
     def record_push(self, report_type: str, date: Optional[str] = None) -> bool:
         """
         记录推送

@@ -112,6 +112,7 @@ def _load_push_window_config(config_data: Dict) -> Dict:
             "END": _get_env_str("PUSH_WINDOW_END") or time_range.get("end", "22:00"),
         },
         "ONCE_PER_DAY": once_per_day_env if once_per_day_env is not None else push_window.get("once_per_day", True),
+        "PUSH_INTERVAL_HOURS": _get_env_int("PUSH_INTERVAL_HOURS") or push_window.get("push_interval_hours", 0),
     }
 
 

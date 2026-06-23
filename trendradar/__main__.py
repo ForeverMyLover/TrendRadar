@@ -7,6 +7,7 @@ TrendRadar 主程序
 """
 
 import os
+import random
 import webbrowser
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -17,6 +18,8 @@ from trendradar.context import AppContext
 from trendradar import __version__
 from trendradar.core import load_config
 from trendradar.crawler import DataFetcher
+from trendradar.knowledge import KnowledgeFetcher, render_knowledge_html, KNOWLEDGE_SOURCES
+from trendradar.notification.senders import send_to_email
 from trendradar.storage import convert_crawl_results_to_news_data
 
 
@@ -323,6 +326,49 @@ class NewsAnalyzer:
         # HTML生成（如果启用）
         html_file = None
         if self.ctx.config["STORAGE"]["FORMATS"]["HTML"]:
+            # 随机探索：从未匹配的新闻中随机抽取
+            matched_titles = set()
+            for stat in stats:
+                for t in stat["titles"]:
+                    matched_titles.add(t["title"])
+            unmatched = []
+            for source_id, titles_data in data_source.items():
+                source_name = id_to_name.get(source_id, source_id)
+                for title, title_data in titles_data.items():
+                    if title not in matched_titles:
+                        ranks = title_data.get("ranks", [])
+                        unmatched.append({
+                            "title": title,
+                            "source_name": source_name,
+                            "title_data": title_data,
+                        })
+            if unmatched:
+                random_count = min(5, len(unmatched))
+                random_titles = random.sample(unmatched, random_count)
+                random_stats_entry = {
+                    "word": "🎲 随机探索",
+                    "count": random_count,
+                    "position": 9999,
+                    "titles": [],
+                    "percentage": round(random_count / total_titles * 100, 2) if total_titles > 0 else 0,
+                }
+                for t in random_titles:
+                    random_stats_entry["titles"].append({
+                        "title": t["title"],
+                        "source_name": t["source_name"],
+                        "first_time": "",
+                        "last_time": "",
+                        "time_display": "",
+                        "count": 1,
+                        "ranks": t["title_data"].get("ranks", []) or [99],
+                        "rank_threshold": self.ctx.config["RANK_THRESHOLD"],
+                        "url": t["title_data"].get("url", ""),
+                        "mobileUrl": t["title_data"].get("mobileUrl", ""),
+                        "is_new": False,
+                    })
+                stats.append(random_stats_entry)
+                print(f"随机探索：从 {len(unmatched)} 条未匹配新闻中抽取 {random_count} 条")
+
             html_file = self.ctx.generate_html(
                 stats,
                 total_titles,
@@ -368,12 +414,14 @@ class NewsAnalyzer:
                     )
                     return False
 
-                if cfg["PUSH_WINDOW"]["ONCE_PER_DAY"]:
-                    if push_manager.has_pushed_today():
-                        print(f"推送窗口控制：今天已推送过，跳过本次推送")
-                        return False
+                push_interval = cfg["PUSH_WINDOW"].get("PUSH_INTERVAL_HOURS", 0)
+                if not push_manager.should_push(push_interval):
+                    if push_interval > 0:
+                        print(f"推送窗口控制：距上次推送不足 {push_interval} 小时，跳过")
                     else:
-                        print(f"推送窗口控制：今天首次推送")
+                        print(f"推送窗口控制：今天已推送过，跳过本次推送")
+                    return False
+                print(f"推送窗口控制：通过（间隔={push_interval}h）" if push_interval > 0 else "推送窗口控制：今天首次推送")
 
             # 准备报告数据
             report_data = self.ctx.prepare_report(stats, failed_ids, new_titles, id_to_name, mode)
@@ -396,10 +444,9 @@ class NewsAnalyzer:
                 print("未配置任何通知渠道，跳过通知发送")
                 return False
 
-            # 如果成功发送了任何通知，且启用了每天只推一次，则记录推送
+            # 如果成功发送了任何通知，记录推送
             if (
                 cfg["PUSH_WINDOW"]["ENABLED"]
-                and cfg["PUSH_WINDOW"]["ONCE_PER_DAY"]
                 and any(results.values())
             ):
                 push_manager = self.ctx.create_push_manager()
@@ -700,6 +747,61 @@ class NewsAnalyzer:
 
         return summary_html
 
+    def _run_knowledge_pipeline(self) -> None:
+        """运行知识日报流水线：抓取 → 渲染 → 发邮件"""
+        cfg = self.ctx.config
+
+        # 检查邮件是否配置
+        if not (cfg.get("EMAIL_FROM") and cfg.get("EMAIL_PASSWORD") and cfg.get("EMAIL_TO")):
+            print("知识日报：邮件未配置，跳过")
+            return
+
+        print("\n[知识日报] 开始抓取...")
+        try:
+            fetcher = KnowledgeFetcher()
+            knowledge_results = fetcher.fetch_all(KNOWLEDGE_SOURCES)
+        except Exception as e:
+            print(f"知识日报抓取失败: {e}")
+            return
+
+        total_items = sum(len(s["items"]) for s in knowledge_results)
+        if total_items == 0:
+            print("知识日报：未抓取到任何内容，跳过")
+            return
+
+        print(f"知识日报：抓取完成，共 {len(knowledge_results)} 个板块、{total_items} 条内容")
+
+        # 生成 HTML
+        now_str = self.ctx.format_time()
+        html_content = render_knowledge_html(knowledge_results, update_time=now_str)
+
+        # 保存 HTML
+        date_folder = self.ctx.format_date()
+        output_dir = Path(cfg["STORAGE"].get("LOCAL_DIR", "output"))
+        knowledge_dir = output_dir / date_folder / "html"
+        knowledge_dir.mkdir(parents=True, exist_ok=True)
+        knowledge_path = knowledge_dir / "知识日报.html"
+        with open(knowledge_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+        print(f"知识日报 HTML 已保存: {knowledge_path}")
+
+        # 发送邮件
+        print(f"正在发送知识日报邮件到 {cfg['EMAIL_TO']}...")
+        try:
+            send_to_email(
+                from_email=cfg["EMAIL_FROM"],
+                password=cfg["EMAIL_PASSWORD"],
+                to_email=cfg["EMAIL_TO"],
+                report_type="知识日报",
+                html_file_path=str(knowledge_path),
+                custom_smtp_server=cfg.get("EMAIL_SMTP_SERVER") or None,
+                custom_smtp_port=int(cfg["EMAIL_SMTP_PORT"]) if cfg.get("EMAIL_SMTP_PORT") else None,
+                get_time_func=self.ctx.get_time,
+            )
+            print(f"知识日报邮件发送成功 -> {cfg['EMAIL_TO']}")
+        except Exception as e:
+            print(f"知识日报邮件发送失败: {e}")
+
     def run(self) -> None:
         """执行分析流程"""
         try:
@@ -710,6 +812,9 @@ class NewsAnalyzer:
             results, id_to_name, failed_ids = self._crawl_data()
 
             self._execute_mode_strategy(mode_strategy, results, id_to_name, failed_ids)
+
+            # 知识日报
+            self._run_knowledge_pipeline()
 
         except Exception as e:
             print(f"分析流程执行出错: {e}")
