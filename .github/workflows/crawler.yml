@@ -133,21 +133,6 @@ jobs:
             exit 1
           fi
 
-      - name: Start RSSHub
-        if: success()
-        run: |
-          echo "[RSSHub] Starting..."
-          npx -y rsshub --port 1200 &
-          # 等待 RSSHub 启动
-          for i in $(seq 1 30); do
-            if curl -s http://localhost:1200 > /dev/null 2>&1; then
-              echo "[RSSHub] Ready after ${i}s"
-              break
-            fi
-            sleep 1
-          done
-          curl -s http://localhost:1200 | head -3
-
       - name: Run crawler
         if: success()
         env:
