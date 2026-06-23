@@ -51,18 +51,7 @@ permissions:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    services:
-      rsshub:
-        image: diygod/rsshub:latest
-        ports:
-          - 1200:1200
-        options: >-
-          --health-cmd "wget -qO- http://localhost:1200 || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -143,6 +132,21 @@ jobs:
             echo "Error: Config missing"
             exit 1
           fi
+
+      - name: Start RSSHub
+        if: success()
+        run: |
+          echo "[RSSHub] Starting..."
+          npx -y rsshub --port 1200 &
+          # 等待 RSSHub 启动
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:1200 > /dev/null 2>&1; then
+              echo "[RSSHub] Ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -s http://localhost:1200 | head -3
 
       - name: Run crawler
         if: success()
